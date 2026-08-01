@@ -6,6 +6,8 @@ A FastAPI-based proxy that adds persistent memory capabilities to any local LLM 
 
 The Unified Memory Proxy intercepts chat completion requests, executes memory tool calls server-side, and loops the model for round-2+ content. This allows models to save, recall, and edit memories across sessions without the client needing to understand the memory system.
 
+**Note:** This project was developed with AI assistance. The memory architecture and proxy logic were co-created with large language models, with testing conducted using the model powering this conversation and implementation built with Opencode's Big Pickle.
+
 - **Python version:** 3.11.0
 - **Framework:** FastAPI
 - **Database:** PostgreSQL
