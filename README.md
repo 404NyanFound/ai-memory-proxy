@@ -57,7 +57,7 @@ The Unified Memory Proxy intercepts chat completion requests, executes memory to
 
 ### Tool Calls
 
-The proxy supports 17 memory tools, executed server-side:
+The proxy supports 16 memory tools, executed server-side:
 
 | Tool | Description |
 |------|-------------|
