@@ -133,4 +133,4 @@ The database contains 6 tables:
 
 ## License
 
-Private project — not intended for public distribution without explicit permission.
+[MIT License](LICENSE) — You are free to fork, modify, and distribute this project. No pull requests required.
