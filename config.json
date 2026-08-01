@@ -1,0 +1,37 @@
+{
+  "server": {
+    "port": 8082,
+    "host": "0.0.0.0"
+  },
+  "proxy": {
+    "port": 8082,
+    "host": "0.0.0.0"
+  },
+  "llama": {
+    "external_port": 8080,
+    "host": "127.0.0.1"
+  },
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "name": "ai_memory",
+    "user": "memory_user",
+    "password": "memory_pass_123"
+  },
+  "memory": {
+    "ai_drive_path": "D:\\AI Drive",
+    "archive_path": "D:\\AI Archives",
+    "ttl_days": 30,
+    "session_ttl_days": 30,
+    "context_inject_top_k": 3,
+    "max_tool_iterations": 10
+  },
+  "eureka_detection": {
+    "enabled": true,
+    "signals": [
+      "user_satisfaction",
+      "problem_solved",
+      "non_obvious_solution"
+    ]
+  }
+}
