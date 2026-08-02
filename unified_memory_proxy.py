@@ -1878,6 +1878,7 @@ def completion_response_with_external_calls(
 def stream_tool_calls_generator(response_data: dict[str, Any], tool_calls: list[dict[str, Any]]):
     message = response_data.get("choices", [{}])[0].get("message") or {}
     reasoning = message.get("reasoning_content") or ""
+    usage = response_data.get("usage")
 
     async def gen():
         for index in range(0, len(reasoning), 32):
@@ -1895,6 +1896,8 @@ def stream_tool_calls_generator(response_data: dict[str, Any], tool_calls: list[
                     }
                 ],
             }
+            if usage:
+                payload["usage"] = usage
             yield f"data: {json.dumps(payload)}\n\n"
             await asyncio.sleep(0.005)
 
@@ -1925,6 +1928,8 @@ def stream_tool_calls_generator(response_data: dict[str, Any], tool_calls: list[
                     }
                 ],
             }
+            if usage:
+                header_payload["usage"] = usage
             yield f"data: {json.dumps(header_payload)}\n\n"
             await asyncio.sleep(0.005)
 
@@ -1947,6 +1952,8 @@ def stream_tool_calls_generator(response_data: dict[str, Any], tool_calls: list[
                         }
                     ],
                 }
+                if usage:
+                    arg_payload["usage"] = usage
                 yield f"data: {json.dumps(arg_payload)}\n\n"
                 await asyncio.sleep(0.005)
 
@@ -1957,6 +1964,8 @@ def stream_tool_calls_generator(response_data: dict[str, Any], tool_calls: list[
             "model": response_data.get("model"),
             "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
         }
+        if usage:
+            final_payload["usage"] = usage
         yield f"data: {json.dumps(final_payload)}\n\n"
         yield "data: [DONE]\n\n"
 
@@ -2052,8 +2061,9 @@ def build_response_data(
     reasoning: str,
     tool_calls: list[dict[str, Any]] | None,
     finish_reason: str,
+    usage: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    result: dict[str, Any] = {
         "id": meta.get("id"),
         "object": "chat.completion",
         "created": meta.get("created"),
@@ -2071,11 +2081,15 @@ def build_response_data(
             }
         ],
     }
+    if usage:
+        result["usage"] = usage
+    return result
 
 
 async def tool_call_chunks(
     response_data: dict[str, Any], tool_calls: list[dict[str, Any]]
 ):
+    usage = response_data.get("usage")
     for call_index, call in enumerate(tool_calls):
         function = call.get("function", {})
         name = function.get("name", "")
@@ -2103,6 +2117,8 @@ async def tool_call_chunks(
                 }
             ],
         }
+        if usage:
+            header_payload["usage"] = usage
         yield f"data: {json.dumps(header_payload)}\n\n"
         await asyncio.sleep(0.005)
 
@@ -2125,6 +2141,8 @@ async def tool_call_chunks(
                     }
                 ],
             }
+            if usage:
+                arg_payload["usage"] = usage
             yield f"data: {json.dumps(arg_payload)}\n\n"
             await asyncio.sleep(0.005)
 
@@ -2135,17 +2153,21 @@ async def tool_call_chunks(
         "model": response_data.get("model"),
         "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
     }
+    if usage:
+        final_payload["usage"] = usage
     yield f"data: {json.dumps(final_payload)}\n\n"
 
 
-def finish_chunk_sse(response_data: dict[str, Any], finish_reason: str) -> str:
-    payload = {
+def finish_chunk_sse(response_data: dict[str, Any], finish_reason: str, usage: dict[str, Any] | None = None) -> str:
+    payload: dict[str, Any] = {
         "id": response_data.get("id"),
         "object": "chat.completion.chunk",
         "created": response_data.get("created"),
         "model": response_data.get("model"),
         "choices": [{"index": 0, "delta": {}, "finish_reason": finish_reason}],
     }
+    if usage:
+        payload["usage"] = usage
     return f"data: {json.dumps(payload)}\n\n"
 
 
@@ -2192,6 +2214,7 @@ async def stream_proxy_loop(
                 reasoning_parts: list[str] = []
                 tool_acc: dict[int, dict[str, Any]] = {}
                 finish_reason = "stop"
+                upstream_usage: dict[str, Any] | None = None
 
                 def make_chunk(delta: dict) -> dict[str, Any]:
                     return {
@@ -2220,8 +2243,14 @@ async def stream_proxy_loop(
                         except json.JSONDecodeError:
                             continue
                         choices = data.get("choices") or []
+
+                        # Capture usage from top-level of final chunk (OpenAI streaming format)
+                        if not upstream_usage and data.get("usage"):
+                            upstream_usage = data["usage"]
+
                         if not choices:
                             continue
+
                         choice = choices[0]
                         delta = choice.get("delta") or {}
                         if choice.get("finish_reason"):
@@ -2327,7 +2356,7 @@ async def stream_proxy_loop(
                     # External calls must still reach the client.
                     if external_calls:
                         response_data = build_response_data(
-                            meta, content, reasoning, external_calls, "tool_calls"
+                            meta, content, reasoning, external_calls, "tool_calls", upstream_usage
                         )
                         async for chunk in tool_call_chunks(response_data, external_calls):
                             yield chunk
@@ -2344,15 +2373,15 @@ async def stream_proxy_loop(
                 # No server-side memory calls remain. Persist the session and finish.
                 if external_calls:
                     response_data = build_response_data(
-                        meta, content, reasoning, external_calls, "tool_calls"
+                        meta, content, reasoning, external_calls, "tool_calls", upstream_usage
                     )
                     async for chunk in tool_call_chunks(response_data, external_calls):
                         yield chunk
                 else:
                     response_data = build_response_data(
-                        meta, content, reasoning, None, finish_reason or "stop"
+                        meta, content, reasoning, None, finish_reason or "stop", upstream_usage
                     )
-                    yield finish_chunk_sse(response_data, finish_reason or "stop")
+                    yield finish_chunk_sse(response_data, finish_reason or "stop", upstream_usage)
                 yield "data: [DONE]\n\n"
                 persist_session(
                     user_id,
@@ -2444,6 +2473,7 @@ async def proxy_chat_completions(request: Request, user_id: str):
     request_body = dict(body)
     request_body.update({"messages": messages, "tools": all_tools})
     request_body.pop("session_id", None)
+    request_body.setdefault("stream_options", {"include_usage": True})
 
     llama_host = config["llama"]["host"]
     llama_port = config["llama"]["external_port"]
@@ -2523,6 +2553,8 @@ async def proxy_chat_completions(request: Request, user_id: str):
             reasoning = message.get("reasoning_content") or ""
             finish_reason = choices[0].get("finish_reason", "stop")
 
+            upstream_usage = response_data.get("usage")
+
             async def stream_chunks():
                 for index in range(0, len(reasoning), 32):
                     chunk = reasoning[index : index + 32]
@@ -2539,6 +2571,8 @@ async def proxy_chat_completions(request: Request, user_id: str):
                             }
                         ],
                     }
+                    if upstream_usage:
+                        payload["usage"] = upstream_usage
                     yield f"data: {json.dumps(payload)}\n\n"
                     await asyncio.sleep(0.005)
 
@@ -2557,6 +2591,8 @@ async def proxy_chat_completions(request: Request, user_id: str):
                             }
                         ],
                     }
+                    if upstream_usage:
+                        payload["usage"] = upstream_usage
                     yield f"data: {json.dumps(payload)}\n\n"
                     await asyncio.sleep(0.005)
 
@@ -2569,6 +2605,8 @@ async def proxy_chat_completions(request: Request, user_id: str):
                         {"index": 0, "delta": {}, "finish_reason": finish_reason}
                     ],
                 }
+                if upstream_usage:
+                    final_payload["usage"] = upstream_usage
                 yield f"data: {json.dumps(final_payload)}\n\n"
                 yield "data: [DONE]\n\n"
 
