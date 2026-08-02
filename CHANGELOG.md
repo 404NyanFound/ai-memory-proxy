@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Usage tokens not appearing in client responses (usage chunk dropped due to empty `choices` early return)
+
 ### Added
 - Initial release of Unified Memory Proxy
 - 17 memory tools for persistent memory management
